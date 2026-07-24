@@ -74,6 +74,7 @@ ss().setdefault("_int_results", [])
 ss().setdefault("audiences_cache", [])
 ss().setdefault("target_auds", [])
 ss().setdefault("exclude_auds", [])
+ss().setdefault("run_id", None)
 
 
 # ============================================================
@@ -176,6 +177,25 @@ def step_dashboard():
         st.info(
             "Данных пока нет. Пройди шаги: **Бриф → Аналитик → Креативы → Запуск**, "
             "затем сними метрики во вкладке **Оптимизатор** — здесь появятся KPI и график."
+        )
+
+    # История прогонов
+    try:
+        from services import store
+
+        runs = store.list_runs(20)
+    except Exception:  # noqa: BLE001
+        runs = []
+    if runs:
+        st.divider()
+        st.caption("🗂 История прогонов")
+        st.dataframe(
+            [{
+                "#": r["id"], "Дата (UTC)": r["created_at"], "Продукт": r["product"],
+                "Кампания": r["campaign_id"], "Статус": r["status"],
+                "Режим": "🧪 DRY" if r["dry_run"] else "🔴 LIVE",
+            } for r in runs],
+            use_container_width=True,
         )
 
 
@@ -473,6 +493,12 @@ def step_launch():
                 )
                 ss().campaign = camp
                 telegram.send_message(telegram.format_launch_report(camp, ss().brief))
+                try:
+                    from services import store
+
+                    ss().run_id = store.save_run(ss().brief, camp)
+                except Exception as exc2:  # noqa: BLE001 — история не должна ронять запуск
+                    st.caption(f"(история не сохранена: {exc2})")
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Запуск не удался: {exc}")
 
@@ -506,6 +532,13 @@ def step_optimizer():
 
                 metrics, decisions = run_optimizer(ad_ids, execute=execute)
                 ss().metrics, ss().decisions = metrics, decisions
+                if ss().get("run_id"):
+                    try:
+                        from services import store
+
+                        store.save_metrics(ss().run_id, metrics)
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Оптимизатор упал: {exc}")
 

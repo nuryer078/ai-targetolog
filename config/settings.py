@@ -25,9 +25,13 @@ class Settings(BaseSettings):
     meta_pixel_id: str = Field(default="", alias="META_PIXEL_ID")
     meta_api_version: str = Field(default="v21.0", alias="META_API_VERSION")
 
-    # --- Картинки ---
+    # --- Картинки / Видео ---
     replicate_api_token: str = Field(default="", alias="REPLICATE_API_TOKEN")
     image_model: str = Field(default="black-forest-labs/flux-1.1-pro", alias="IMAGE_MODEL")
+    video_model: str = Field(default="minimax/video-01", alias="VIDEO_MODEL")
+
+    # --- История (SQLite) ---
+    db_path: str = Field(default="targetolog.db", alias="DB_PATH")
 
     # --- Telegram ---
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
