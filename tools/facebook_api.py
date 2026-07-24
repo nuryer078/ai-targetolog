@@ -58,6 +58,16 @@ class FacebookAdsClient:
         params: Optional[dict] = None,
         files: Optional[dict] = None,
     ) -> dict[str, Any]:
+        # Понятная ошибка вместо сырого Graph API, если Meta не настроена.
+        if not self.s.meta_access_token:
+            raise MetaApiError(
+                "Meta Ads не подключена: добавь META_ACCESS_TOKEN в .env / Secrets."
+            )
+        if self.s.ad_account_path == "act_" and path.startswith("act_"):
+            raise MetaApiError(
+                "Meta Ads не подключена: не задан META_AD_ACCOUNT_ID (номер рекламного кабинета)."
+            )
+
         url = f"{self.base}/{path.lstrip('/')}"
         payload = dict(data or {})
         query = dict(params or {})

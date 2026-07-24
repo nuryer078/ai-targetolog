@@ -8,6 +8,7 @@ import pytest
 from services.guardrails import BudgetExceeded
 from tools.facebook_api import (
     FacebookAdsClient,
+    MetaApiError,
     extract_leads,
     extract_purchases,
     extract_revenue,
@@ -48,6 +49,20 @@ class FakeClient(FacebookAdsClient):
                 {"id": "6004", "name": "Espresso", "audience_size_lower_bound": 8000},
             ]}
         return {"id": "obj"}
+
+
+def test_clear_error_when_no_token(set_env):
+    set_env(META_ACCESS_TOKEN="")
+    with pytest.raises(MetaApiError) as e:
+        FacebookAdsClient().get_insights("123")
+    assert "не подключена" in str(e.value)
+
+
+def test_clear_error_when_no_account(set_env):
+    set_env(META_AD_ACCOUNT_ID="")  # токен остаётся заданным
+    with pytest.raises(MetaApiError) as e:
+        FacebookAdsClient().list_custom_audiences()
+    assert "META_AD_ACCOUNT_ID" in str(e.value)
 
 
 def test_minor_units_usd():
