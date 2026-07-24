@@ -58,6 +58,20 @@ def cmd_optimize(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scale(args: argparse.Namespace) -> int:
+    from agents.optimizer import run_scaling
+
+    settings = get_settings()
+    metrics, decisions = run_scaling(args.adsets, step=args.step, execute=not args.dry)
+    scaled = [d for d in decisions if d.action == "SCALE"]
+    for d in scaled:
+        print(f"↑ {d.ad_id}: {d.reason}")
+    if settings.dry_run:
+        print("DRY_RUN включён — масштабирование не исполнено (только показано).")
+    print(f"\nК масштабированию: {len(scaled)} из {len(args.adsets)} групп")
+    return 0
+
+
 def cmd_kill(args: argparse.Namespace) -> int:
     from tools.facebook_api import FacebookAdsClient
 
@@ -92,6 +106,12 @@ def build_parser() -> argparse.ArgumentParser:
     o.add_argument("--ads", nargs="+", required=True, help="ID объявлений")
     o.add_argument("--dry", action="store_true", help="Не паузить, только показать")
     o.set_defaults(func=cmd_optimize)
+
+    sc = sub.add_parser("scale", help="Масштабировать бюджет групп-победителей (с потолком)")
+    sc.add_argument("--adsets", nargs="+", required=True, help="ID групп объявлений")
+    sc.add_argument("--step", type=float, default=1.3, help="Множитель бюджета (по умолч. 1.3)")
+    sc.add_argument("--dry", action="store_true", help="Только показать, не менять")
+    sc.set_defaults(func=cmd_scale)
 
     k = sub.add_parser("kill", help="Аварийно поставить на паузу все ACTIVE-кампании")
     k.set_defaults(func=cmd_kill)

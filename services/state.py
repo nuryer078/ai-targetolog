@@ -72,14 +72,19 @@ class AdMetrics(BaseModel):
     clicks: int = 0
     ctr: float = 0.0
     cpc: float = 0.0
+    frequency: float = 0.0          # ср. число показов на человека (усталость креатива)
     leads: int = 0
     cpl: Optional[float] = None     # None = лидов ещё нет
+    purchases: int = 0
+    revenue: float = 0.0            # выручка (ценность покупок)
+    roas: Optional[float] = None    # revenue / spend; None = покупок ещё нет
 
 
 class OptimizationDecision(BaseModel):
     ad_id: str
-    action: str                    # KEEP | PAUSE
+    action: str                    # KEEP | PAUSE | SCALE
     reason: str
+    new_budget: Optional[float] = None  # для SCALE — новый дневной бюджет группы
 
 
 # --- Общее состояние графа ---

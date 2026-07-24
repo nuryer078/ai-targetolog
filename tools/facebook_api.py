@@ -86,6 +86,12 @@ class FacebookAdsClient:
             return int(round(amount))
         return int(round(amount * 100))
 
+    def _from_minor_units(self, amount: float) -> float:
+        """Обратный перевод из минимальных единиц в валюту (для чтения бюджета)."""
+        if self.s.currency.upper() in _ZERO_DECIMAL:
+            return float(amount)
+        return round(float(amount) / 100, 2)
+
     # ---------- кампания ----------
 
     def create_campaign(
@@ -94,24 +100,34 @@ class FacebookAdsClient:
         objective: str = "OUTCOME_TRAFFIC",
         status: str = "PAUSED",
         special_ad_categories: Optional[list[str]] = None,
+        *,
+        daily_budget: Optional[float] = None,
+        bid_strategy: str = "LOWEST_COST_WITHOUT_CAP",
     ) -> dict[str, Any]:
         """Создаёт рекламную кампанию (верхний уровень).
 
         objective — цель ODAX: OUTCOME_TRAFFIC / OUTCOME_LEADS / OUTCOME_SALES и т.д.
+        daily_budget — если задан, включается CBO (Advantage+ бюджет кампании): Meta
+        сама распределяет бюджет между группами. Проходит через тот же предохранитель.
         """
         guardrails.check_kill_switch()
         safe_status = guardrails.effective_status(status)
-        body = self._request(
-            "POST",
-            f"{self.s.ad_account_path}/campaigns",
-            data={
-                "name": name,
-                "objective": objective,
-                "status": safe_status,
-                "special_ad_categories": str(special_ad_categories or []).replace("'", '"'),
-            },
+        data: dict[str, Any] = {
+            "name": name,
+            "objective": objective,
+            "status": safe_status,
+            "special_ad_categories": str(special_ad_categories or []).replace("'", '"'),
+        }
+        if daily_budget is not None:
+            budget = guardrails.validate_daily_budget(daily_budget)
+            data["daily_budget"] = self._to_minor_units(budget)
+            data["bid_strategy"] = bid_strategy
+        body = self._request("POST", f"{self.s.ad_account_path}/campaigns", data=data)
+        log.info(
+            "Кампания создана: %s (%s)%s",
+            body.get("id"), safe_status,
+            f", CBO-бюджет/день={daily_budget}" if daily_budget else "",
         )
-        log.info("Кампания создана: %s (%s)", body.get("id"), safe_status)
         return body
 
     # ---------- группа объявлений ----------
@@ -120,7 +136,7 @@ class FacebookAdsClient:
         self,
         name: str,
         campaign_id: str,
-        daily_budget: float,
+        daily_budget: Optional[float],
         targeting: dict[str, Any],
         *,
         optimization_goal: str = "LINK_CLICKS",
@@ -131,25 +147,45 @@ class FacebookAdsClient:
     ) -> dict[str, Any]:
         """Создаёт группу объявлений (таргетинг + бюджет).
 
-        daily_budget — В ВАЛЮТЕ кабинета (не в центах): предохранитель сверит с лимитом,
-        а перевод в минимальные единицы делает клиент.
+        daily_budget — В ВАЛЮТЕ кабинета (не в центах): предохранитель сверит с лимитом.
+        Если None — бюджет живёт на кампании (CBO), у группы своего бюджета нет.
         """
-        budget, safe_status = guardrails.preflight(daily_budget, status)
         data: dict[str, Any] = {
             "name": name,
             "campaign_id": campaign_id,
-            "daily_budget": self._to_minor_units(budget),
-            "billing_event": billing_event,
             "optimization_goal": optimization_goal,
-            "bid_strategy": bid_strategy,
+            "billing_event": billing_event,
             "targeting": _json(targeting),
-            "status": safe_status,
         }
+        if daily_budget is None:
+            # CBO: бюджет на кампании. Предохранитель бюджета уже отработал там.
+            guardrails.check_kill_switch()
+            data["status"] = guardrails.effective_status(status)
+        else:
+            budget, safe_status = guardrails.preflight(daily_budget, status)
+            data["daily_budget"] = self._to_minor_units(budget)
+            data["bid_strategy"] = bid_strategy
+            data["status"] = safe_status
         if promoted_object:
             data["promoted_object"] = _json(promoted_object)
         body = self._request("POST", f"{self.s.ad_account_path}/adsets", data=data)
-        log.info("Группа создана: %s, бюджет/день=%.2f %s", body.get("id"), budget, self.s.currency)
+        log.info(
+            "Группа создана: %s, бюджет/день=%s",
+            body.get("id"), f"{daily_budget:.2f} {self.s.currency}" if daily_budget else "CBO",
+        )
         return body
+
+    def update_adset_budget(self, adset_id: str, new_daily_budget: float) -> dict[str, Any]:
+        """Меняет дневной бюджет группы (для масштабирования). Сверяется с потолком.
+
+        Повышение бюджета — единственное действие, которое тратит БОЛЬШЕ денег, поэтому
+        оно жёстко ограничено предохранителем MAX_DAILY_BUDGET.
+        """
+        budget = guardrails.validate_daily_budget(new_daily_budget)
+        log.info("Меняю бюджет группы %s -> %.2f %s", adset_id, budget, self.s.currency)
+        return self._request(
+            "POST", adset_id, data={"daily_budget": self._to_minor_units(budget)}
+        )
 
     # ---------- картинка ----------
 
@@ -258,20 +294,113 @@ class FacebookAdsClient:
             )
         return out
 
+    # ---------- аудитории: ретаргетинг и lookalike ----------
+
+    def create_custom_audience_website(
+        self,
+        name: str,
+        pixel_id: str,
+        retention_days: int = 180,
+    ) -> dict[str, Any]:
+        """Создаёт аудиторию ретаргетинга: все, кто заходил на сайт (по пикселю).
+
+        Тёплый трафик — обычно самый дешёвый источник конверсий.
+        """
+        guardrails.check_kill_switch()
+        rule = {
+            "inclusions": {
+                "operator": "or",
+                "rules": [{
+                    "event_sources": [{"type": "pixel", "id": pixel_id}],
+                    "retention_seconds": retention_days * 86400,
+                    "filter": {"operator": "and", "filters": [
+                        {"field": "event", "operator": "eq", "value": "PageView"}
+                    ]},
+                }],
+            }
+        }
+        body = self._request(
+            "POST",
+            f"{self.s.ad_account_path}/customaudiences",
+            data={"name": name, "subtype": "WEBSITE", "rule": _json(rule),
+                  "prefill": "true", "retention_days": retention_days},
+        )
+        log.info("Аудитория ретаргетинга создана: %s", body.get("id"))
+        return body
+
+    def create_lookalike_audience(
+        self,
+        name: str,
+        source_audience_id: str,
+        country: str,
+        ratio: float = 0.01,
+    ) -> dict[str, Any]:
+        """Создаёт lookalike-аудиторию (похожие на источник) для страны.
+
+        ratio — «ширина» LAL: 0.01 = топ-1% похожих (уже/точнее), 0.10 = 10% (шире).
+        """
+        guardrails.check_kill_switch()
+        spec = {"type": "similarity", "country": country.upper(), "ratio": ratio}
+        body = self._request(
+            "POST",
+            f"{self.s.ad_account_path}/customaudiences",
+            data={
+                "name": name,
+                "subtype": "LOOKALIKE",
+                "origin_audience_id": source_audience_id,
+                "lookalike_spec": _json(spec),
+            },
+        )
+        log.info("Lookalike-аудитория создана: %s (ratio=%.2f, %s)", body.get("id"), ratio, country)
+        return body
+
+    def list_custom_audiences(self) -> list[dict[str, Any]]:
+        """Список аудиторий кабинета: id, name, subtype, размер."""
+        body = self._request(
+            "GET",
+            f"{self.s.ad_account_path}/customaudiences",
+            params={"fields": "id,name,subtype,approximate_count_lower_bound", "limit": 100},
+        )
+        return [
+            {
+                "id": a.get("id"),
+                "name": a.get("name"),
+                "subtype": a.get("subtype"),
+                "count": a.get("approximate_count_lower_bound"),
+            }
+            for a in body.get("data", [])
+        ]
+
     # ---------- метрики ----------
 
     def get_insights(self, object_id: str, date_preset: str = "today") -> dict[str, Any]:
-        """Снимает статистику по объекту (ad/adset/campaign)."""
+        """Снимает статистику по объекту (ad/adset/campaign).
+
+        frequency нужен для детекта усталости креатива, action_values — для ROAS.
+        """
         body = self._request(
             "GET",
             f"{object_id}/insights",
             params={
-                "fields": "spend,impressions,clicks,ctr,cpc,actions",
+                "fields": "spend,impressions,clicks,ctr,cpc,frequency,actions,action_values",
                 "date_preset": date_preset,
             },
         )
         rows = body.get("data", [])
         return rows[0] if rows else {}
+
+    def get_adset(self, adset_id: str) -> dict[str, Any]:
+        """Читает группу: id, name, дневной бюджет (в валюте), статус."""
+        body = self._request(
+            "GET", adset_id, params={"fields": "id,name,daily_budget,status"}
+        )
+        db = body.get("daily_budget")
+        return {
+            "id": body.get("id"),
+            "name": body.get("name"),
+            "daily_budget": self._from_minor_units(db) if db else None,
+            "status": body.get("status"),
+        }
 
     # ---------- пауза (предохранитель Optimizer'а) ----------
 
@@ -314,4 +443,25 @@ def extract_leads(insights: dict[str, Any]) -> int:
     for action in insights.get("actions", []) or []:
         if action.get("action_type") in lead_types:
             total += int(float(action.get("value", 0)))
+    return total
+
+
+_PURCHASE_TYPES = {"purchase", "offsite_conversion.fb_pixel_purchase", "omni_purchase"}
+
+
+def extract_purchases(insights: dict[str, Any]) -> int:
+    """Число покупок из actions."""
+    total = 0
+    for action in insights.get("actions", []) or []:
+        if action.get("action_type") in _PURCHASE_TYPES:
+            total += int(float(action.get("value", 0)))
+    return total
+
+
+def extract_revenue(insights: dict[str, Any]) -> float:
+    """Выручка из action_values (ценность покупок) — для расчёта ROAS."""
+    total = 0.0
+    for av in insights.get("action_values", []) or []:
+        if av.get("action_type") in _PURCHASE_TYPES:
+            total += float(av.get("value", 0) or 0)
     return total

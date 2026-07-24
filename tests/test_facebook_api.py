@@ -6,7 +6,12 @@ import json
 import pytest
 
 from services.guardrails import BudgetExceeded
-from tools.facebook_api import FacebookAdsClient, extract_leads
+from tools.facebook_api import (
+    FacebookAdsClient,
+    extract_leads,
+    extract_purchases,
+    extract_revenue,
+)
 
 
 class FakeClient(FacebookAdsClient):
@@ -18,6 +23,13 @@ class FakeClient(FacebookAdsClient):
 
     def _request(self, method, path, *, data=None, params=None, files=None):
         self.calls.append({"method": method, "path": path, "data": data or {}, "params": params or {}})
+        if method == "GET" and params and "daily_budget" in str(params.get("fields", "")):
+            return {"id": path, "name": "AdSet", "daily_budget": "500", "status": "ACTIVE"}
+        if path.endswith("/customaudiences"):
+            if method == "GET":
+                return {"data": [{"id": "aud_1", "name": "Ретаргетинг", "subtype": "WEBSITE",
+                                  "approximate_count_lower_bound": 1500}]}
+            return {"id": "aud_1"}
         if path.endswith("/campaigns"):
             return {"id": "camp_1"}
         if path.endswith("/adsets"):
@@ -104,3 +116,86 @@ def test_extract_leads():
     ]}
     assert extract_leads(insights) == 5
     assert extract_leads({}) == 0
+
+
+def test_extract_purchases_and_revenue():
+    insights = {
+        "actions": [{"action_type": "purchase", "value": "4"}],
+        "action_values": [{"action_type": "purchase", "value": "1200.50"}],
+    }
+    assert extract_purchases(insights) == 4
+    assert extract_revenue(insights) == 1200.50
+    assert extract_revenue({}) == 0.0
+
+
+def test_minor_units_roundtrip():
+    c = FacebookAdsClient()
+    assert c._from_minor_units(500) == 5.0
+    assert c._to_minor_units(c._from_minor_units(499)) == 499
+
+
+# ---------- CBO (бюджет на кампании) ----------
+
+def test_create_campaign_with_cbo_budget():
+    c = FakeClient()
+    c.create_campaign("Test", daily_budget=5.0)
+    call = c.calls[-1]
+    assert call["data"]["daily_budget"] == 500
+    assert "bid_strategy" in call["data"]
+
+
+def test_create_campaign_cbo_over_limit_blocked():
+    c = FakeClient()
+    with pytest.raises(BudgetExceeded):
+        c.create_campaign("Test", daily_budget=100.0)
+
+
+def test_create_adset_cbo_mode_no_budget_field():
+    c = FakeClient()
+    c.create_adset("AdSet", "camp_1", daily_budget=None, targeting={}, status="ACTIVE")
+    call = c.calls[-1]
+    assert "daily_budget" not in call["data"]     # бюджет на кампании
+    assert call["data"]["status"] == "PAUSED"     # dry-run
+
+
+# ---------- масштабирование ----------
+
+def test_update_adset_budget_within_limit():
+    c = FakeClient()
+    c.update_adset_budget("adset_1", 8.0)
+    assert c.calls[-1]["data"]["daily_budget"] == 800
+
+
+def test_update_adset_budget_over_limit_blocked():
+    c = FakeClient()
+    with pytest.raises(BudgetExceeded):
+        c.update_adset_budget("adset_1", 999.0)
+
+
+def test_get_adset_parses_budget():
+    c = FakeClient()
+    info = c.get_adset("adset_1")
+    assert info["daily_budget"] == 5.0            # 500 центов -> 5.0
+
+
+# ---------- аудитории ----------
+
+def test_create_retargeting_audience_sends_website_subtype():
+    c = FakeClient()
+    assert c.create_custom_audience_website("RT", pixel_id="777")["id"] == "aud_1"
+    call = c.calls[-1]
+    assert call["data"]["subtype"] == "WEBSITE"
+
+
+def test_create_lookalike_sends_lookalike_subtype():
+    c = FakeClient()
+    c.create_lookalike_audience("LAL", "aud_1", "KZ", ratio=0.01)
+    call = c.calls[-1]
+    assert call["data"]["subtype"] == "LOOKALIKE"
+    assert call["data"]["origin_audience_id"] == "aud_1"
+
+
+def test_list_custom_audiences_parses():
+    c = FakeClient()
+    res = c.list_custom_audiences()
+    assert res[0]["id"] == "aud_1" and res[0]["subtype"] == "WEBSITE"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from agents.media_buyer import (
+    append_utm,
     build_targeting,
     launch,
     resolve_campaign_config,
@@ -20,6 +21,7 @@ class FakeFB:
 
     def create_campaign(self, **kw):
         self.created["campaign"] += 1
+        self.campaign_kw = kw
         return {"id": "camp_1"}
 
     def create_adset(self, **kw):
@@ -33,6 +35,7 @@ class FakeFB:
 
     def create_ad_creative(self, **kw):
         self.created["creative"] += 1
+        self.creative_kw = kw
         return {"id": f"creative_{self.created['creative']}"}
 
     def create_ad(self, **kw):
@@ -135,3 +138,46 @@ def test_launch_without_pixel_no_promoted_object():
     fb = FakeFB()
     launch(_brief(), [_creative()], daily_budget=5.0, client=fb)
     assert fb.adset_kw["promoted_object"] is None
+
+
+# ---------- UTM ----------
+
+def test_append_utm_adds_params():
+    url = append_utm("https://shop.kz/page", "Курс SMM")
+    assert "utm_source=facebook" in url
+    assert "utm_medium=paid_social" in url
+    assert "utm_campaign=" in url
+
+
+def test_append_utm_preserves_existing():
+    url = append_utm("https://shop.kz/p?utm_source=custom&ref=1", "Кампания")
+    assert "utm_source=custom" in url   # своё не перетёрли
+    assert "ref=1" in url
+
+
+def test_launch_uses_utm_link():
+    fb = FakeFB()
+    launch(_brief(), [_creative()], daily_budget=5.0, client=fb)
+    assert "utm_source=facebook" in fb.creative_kw["link"]
+
+
+# ---------- CBO + аудитории ----------
+
+def test_launch_cbo_puts_budget_on_campaign():
+    fb = FakeFB()
+    launch(_brief(), [_creative()], daily_budget=5.0, campaign_budget=7.0, client=fb)
+    assert fb.campaign_kw["daily_budget"] == 7.0   # бюджет на кампании
+    assert fb.adset_kw["daily_budget"] is None      # у группы бюджета нет
+
+
+def test_launch_non_cbo_budget_on_adset():
+    fb = FakeFB()
+    launch(_brief(), [_creative()], daily_budget=5.0, client=fb)
+    assert fb.campaign_kw["daily_budget"] is None
+    assert fb.adset_kw["daily_budget"] == 5.0
+
+
+def test_build_targeting_with_audiences():
+    t = build_targeting(_brief(), custom_audiences=["a1"], excluded_audiences=["a2"])
+    assert t["custom_audiences"] == [{"id": "a1"}]
+    assert t["excluded_custom_audiences"] == [{"id": "a2"}]

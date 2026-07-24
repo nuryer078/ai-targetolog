@@ -21,7 +21,8 @@ Telegram (отчёты). Тесты — pytest.
 ```
 streamlit run app.py                 # визуальная панель
 python main.py run --name ... --budget 5   # автономный проход
-python main.py optimize --ads ID...  # цикл оптимизатора (для крона)
+python main.py optimize --ads ID...  # оптимизатор: метрики + авто-пауза (крон)
+python main.py scale --adsets ID...  # масштабировать бюджет победителей (с потолком)
 python main.py kill                  # аварийно паузить все ACTIVE
 pytest                               # тесты
 ```
