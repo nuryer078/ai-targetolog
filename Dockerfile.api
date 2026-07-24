@@ -1,0 +1,15 @@
+# Образ для FastAPI-бэкенда (Railway / Render / любой Docker-хост).
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV PORT=8000
+EXPOSE 8000
+
+# Shell-форма, чтобы подставился $PORT от хостинга
+CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}

@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
 
+    # --- API / доступ ---
+    # Токен для FastAPI-бэкенда. Если задан — все запросы к API требуют заголовок
+    # X-API-Token. Пусто = без авторизации (локальная разработка).
+    api_token: str = Field(default="", alias="API_TOKEN")
+
     # --- Предохранители ---
     dry_run: bool = Field(default=True, alias="DRY_RUN")
     max_daily_budget: float = Field(default=10.0, alias="MAX_DAILY_BUDGET")

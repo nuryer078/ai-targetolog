@@ -2,6 +2,9 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// Токен для защищённого API (совпадает с API_TOKEN на бэкенде). Пусто = без токена.
+const API_TOKEN = process.env.NEXT_PUBLIC_API_TOKEN ?? "";
+
 export type Health = {
   ok: boolean;
   dry_run: boolean;
@@ -13,7 +16,10 @@ export type Health = {
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(API_TOKEN ? { "X-API-Token": API_TOKEN } : {}),
+    },
     cache: "no-store",
     ...init,
   });
