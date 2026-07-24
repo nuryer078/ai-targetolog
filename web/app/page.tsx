@@ -119,7 +119,7 @@ export default function Dashboard() {
       </div>
 
       <p className="mt-8 text-center text-xs text-zinc-600">
-        Витрина Next.js (тёмный премиум) · milestone 1 · остальные экраны — в разработке
+        Витрина Next.js (тёмный премиум) · все экраны готовы · деплой — Vercel + Railway
       </p>
     </div>
   );
