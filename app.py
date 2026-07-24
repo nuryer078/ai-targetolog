@@ -99,6 +99,27 @@ def _emergency_stop():
 # ============================================================
 def step_brief():
     st.subheader("1 · Бриф продукта")
+
+    # --- Автозаполнение ИИ ---
+    with st.expander("✨ Автозаполнить бриф (ИИ)", expanded=not ss().brief):
+        st.caption("Дай ссылку на лендинг и/или пару слов — Claude заполнит бриф, ты проверишь.")
+        af_url = st.text_input("Ссылка на лендинг", key="af_url")
+        af_note = st.text_area("Пара слов о продукте (необязательно)", key="af_note", height=68)
+        if st.button("✨ Заполнить с помощью ИИ", disabled=not (af_url or af_note)):
+            with st.spinner("ИИ читает и заполняет бриф..."):
+                try:
+                    from agents.brief_builder import autofill_brief
+
+                    ss().brief = autofill_brief(note=af_note, url=af_url)
+                    ss().research = ss().creatives = ss().campaign = None
+                    st.success("Бриф заполнен — проверь и поправь ниже.")
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Не вышло: {exc}")
+
+    _goals = ["TRAFFIC", "LEAD_GENERATION", "AWARENESS", "SALES"]
+    _goal_idx = _goals.index(_bv("goal")) if _bv("goal") in _goals else 0
+
     with st.form("brief_form"):
         c1, c2 = st.columns(2)
         name = c1.text_input("Название продукта/услуги", value=_bv("name"))
@@ -107,7 +128,7 @@ def step_brief():
         c3, c4, c5 = st.columns(3)
         geo = c3.text_input("Гео (коды стран через запятую)", value=",".join(_bv("geo") or ["KZ"]))
         price = c4.text_input("Цена (необязательно)", value=_bv("price") or "")
-        goal = c5.selectbox("Цель", ["TRAFFIC", "LEAD_GENERATION", "AWARENESS"], index=0)
+        goal = c5.selectbox("Цель", _goals, index=_goal_idx)
         extra = st.text_area("Доп. вводные для аналитика (необязательно)", value=_bv("extra") or "", height=68)
         submitted = st.form_submit_button("Сохранить бриф", type="primary")
 
