@@ -228,6 +228,36 @@ class FacebookAdsClient:
         log.info("Объявление создано: %s (%s)", body.get("id"), safe_status)
         return body
 
+    # ---------- поиск интересов для таргетинга ----------
+
+    def search_interests(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Ищет интересы Meta по ключевому слову. Возвращает [{id, name, audience}].
+
+        Это то, чем таргетолог сужает аудиторию: точные интересы вместо «всех подряд».
+        """
+        body = self._request(
+            "GET",
+            "search",
+            params={
+                "type": "adinterest",
+                "q": query,
+                "limit": limit,
+                "locale": "ru_RU",
+            },
+        )
+        out = []
+        for item in body.get("data", []):
+            out.append(
+                {
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "audience": item.get("audience_size_lower_bound")
+                    or item.get("audience_size"),
+                    "topic": item.get("topic"),
+                }
+            )
+        return out
+
     # ---------- метрики ----------
 
     def get_insights(self, object_id: str, date_preset: str = "today") -> dict[str, Any]:

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     meta_access_token: str = Field(default="", alias="META_ACCESS_TOKEN")
     meta_ad_account_id: str = Field(default="", alias="META_AD_ACCOUNT_ID")
     meta_page_id: str = Field(default="", alias="META_PAGE_ID")
+    meta_pixel_id: str = Field(default="", alias="META_PIXEL_ID")
     meta_api_version: str = Field(default="v21.0", alias="META_API_VERSION")
 
     # --- Картинки ---

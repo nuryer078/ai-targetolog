@@ -62,12 +62,28 @@ def _node_images(state: GraphState) -> GraphState:
 
 
 def _node_media_buyer(state: GraphState) -> GraphState:
+    from tools.facebook_api import FacebookAdsClient
+
     with_images = [c for c in state["creatives"] if c.image_url]
+
+    # Авто-таргетинг по интересам: собираем ключевые слова из идей аналитика.
+    keywords: list[str] = []
+    for idea in state["research"].ideas:
+        keywords.extend(idea.keywords)
+    keywords = list(dict.fromkeys(keywords))  # уникальные, с сохранением порядка
+
+    fb = FacebookAdsClient()
+    interests = media_buyer.resolve_interests(keywords, fb) if keywords else []
+    if interests:
+        log.info("Подобрано интересов для таргетинга: %d", len(interests))
+
     state["campaign"] = media_buyer.launch(
         state["brief"],
         with_images,
         daily_budget=state["daily_budget"],
         activate=state.get("activate", False),
+        interests=interests,
+        client=fb,
     )
     return state
 

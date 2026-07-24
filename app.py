@@ -42,6 +42,8 @@ for key in ("brief", "research", "creatives", "campaign"):
     ss().setdefault(key, None)
 ss().setdefault("metrics", [])
 ss().setdefault("decisions", [])
+ss().setdefault("interests", [])
+ss().setdefault("_int_results", [])
 
 
 # ============================================================
@@ -248,6 +250,50 @@ def step_launch():
     if len(ready) < len(chosen):
         st.warning("У части выбранных креативов нет баннера — они не попадут в запуск.")
 
+    # --- Режим оптимизации: конверсии или клики ---
+    from agents.media_buyer import resolve_campaign_config
+
+    obj, optgoal, promoted = resolve_campaign_config(ss().brief.goal, s.meta_pixel_id)
+    if promoted:
+        st.success(
+            f"🎯 Оптимизация на **КОНВЕРСИИ**: {obj} · событие "
+            f"{promoted['custom_event_type']} · пиксель {s.meta_pixel_id}"
+        )
+    else:
+        st.info(
+            f"Оптимизация на **клики**: {obj} · {optgoal}. "
+            "Для оптимизации на лиды/покупки добавь `META_PIXEL_ID` в .env."
+        )
+
+    # --- Таргетинг по интересам ---
+    with st.expander("🎯 Таргетинг по интересам (необязательно)", expanded=False):
+        q = st.text_input("Найти интерес в Meta", key="int_query")
+        if st.button("🔎 Искать", disabled=not q):
+            try:
+                from tools.facebook_api import FacebookAdsClient
+
+                ss()._int_results = FacebookAdsClient().search_interests(q)
+                if not ss()._int_results:
+                    st.warning("Ничего не найдено.")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Поиск не удался: {exc}")
+
+        labels = {
+            f"{r['name']} (~{r.get('audience', '?')})": r
+            for r in ss()._int_results if r.get("id")
+        }
+        if labels:
+            picked = st.multiselect("Результаты — выбери, чтобы добавить", list(labels.keys()))
+            for lbl in picked:
+                r = labels[lbl]
+                if all(x["id"] != r["id"] for x in ss().interests):
+                    ss().interests.append(r)
+        if ss().interests:
+            st.caption("Добавлены: " + ", ".join(i["name"] for i in ss().interests))
+            if st.button("Очистить интересы"):
+                ss().interests = []
+                st.rerun()
+
     c1, c2 = st.columns(2)
     budget = c1.number_input(
         f"Дневной бюджет группы, {s.currency}",
@@ -272,7 +318,10 @@ def step_launch():
                 from agents.media_buyer import launch
                 from tools import telegram
 
-                camp = launch(ss().brief, ready, daily_budget=budget, activate=activate)
+                camp = launch(
+                    ss().brief, ready, daily_budget=budget,
+                    activate=activate, interests=ss().interests,
+                )
                 ss().campaign = camp
                 telegram.send_message(telegram.format_launch_report(camp, ss().brief))
             except Exception as exc:  # noqa: BLE001

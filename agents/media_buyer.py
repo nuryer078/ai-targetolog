@@ -19,26 +19,75 @@ from tools.facebook_api import FacebookAdsClient
 
 log = get_logger("media_buyer")
 
-# Соответствие бизнес-цели брифа и настроек Meta.
-_GOAL_MAP = {
-    "TRAFFIC": ("OUTCOME_TRAFFIC", "LINK_CLICKS"),
-    "LEAD_GENERATION": ("OUTCOME_TRAFFIC", "LINK_CLICKS"),  # без пикселя оптимизируем на клики
-    "SALES": ("OUTCOME_TRAFFIC", "LINK_CLICKS"),
-    "AWARENESS": ("OUTCOME_AWARENESS", "REACH"),
-}
+def resolve_campaign_config(goal: str, pixel_id: str) -> tuple[str, str, Optional[dict]]:
+    """По цели брифа и наличию пикселя выбирает objective/optimization_goal/promoted_object.
 
-
-def build_targeting(brief: ProductBrief, age_min: int = 18, age_max: int = 65) -> dict:
-    """Строит валидный таргетинг из брифа: гео + возраст.
-
-    Держим широко и безопасно (гео+возраст всегда валидны). Интересы можно добавить
-    вручную в панели — они требуют точных ID из Meta.
+    Профессиональная логика: если есть пиксель — оптимизируем на РЕАЛЬНЫЕ конверсии
+    (лиды/покупки), а не на клики. Без пикселя честно откатываемся на клики и пишем
+    предупреждение, чтобы не сжигать бюджет на непонятную оптимизацию.
     """
-    return {
+    g = goal.upper()
+    if g == "AWARENESS":
+        return "OUTCOME_AWARENESS", "REACH", None
+    if g in ("LEAD_GENERATION", "SALES"):
+        if pixel_id:
+            if g == "LEAD_GENERATION":
+                return "OUTCOME_LEADS", "OFFSITE_CONVERSIONS", {
+                    "pixel_id": pixel_id, "custom_event_type": "LEAD",
+                }
+            return "OUTCOME_SALES", "OFFSITE_CONVERSIONS", {
+                "pixel_id": pixel_id, "custom_event_type": "PURCHASE",
+            }
+        log.warning(
+            "META_PIXEL_ID не задан — цель %s оптимизируем на КЛИКИ, а не на конверсии. "
+            "Добавь пиксель в .env для оптимизации на лиды/покупки.", g,
+        )
+        return "OUTCOME_TRAFFIC", "LINK_CLICKS", None
+    return "OUTCOME_TRAFFIC", "LINK_CLICKS", None
+
+
+def build_targeting(
+    brief: ProductBrief,
+    interests: Optional[list[dict]] = None,
+    age_min: int = 18,
+    age_max: int = 65,
+) -> dict:
+    """Строит таргетинг из брифа: гео + возраст + (опц.) интересы.
+
+    interests — список {id, name} из FacebookAdsClient.search_interests. Кладём в
+    flexible_spec (текущий рекомендованный способ Meta для интересов).
+    """
+    targeting: dict = {
         "geo_locations": {"countries": [c.upper() for c in brief.geo]},
         "age_min": age_min,
         "age_max": age_max,
     }
+    clean = [{"id": i["id"], "name": i.get("name")} for i in (interests or []) if i.get("id")]
+    if clean:
+        targeting["flexible_spec"] = [{"interests": clean}]
+    return targeting
+
+
+def resolve_interests(
+    keywords: list[str],
+    client: FacebookAdsClient,
+    max_interests: int = 5,
+) -> list[dict]:
+    """Превращает ключевые слова в реальные интересы Meta (топ-1 совпадение на слово)."""
+    found: list[dict] = []
+    seen: set[str] = set()
+    for kw in keywords:
+        try:
+            matches = client.search_interests(kw, limit=1)
+        except Exception as exc:  # noqa: BLE001 — один неудачный поиск не рушит запуск
+            log.warning("Поиск интереса «%s» не удался: %s", kw, exc)
+            continue
+        if matches and matches[0]["id"] not in seen:
+            seen.add(matches[0]["id"])
+            found.append(matches[0])
+        if len(found) >= max_interests:
+            break
+    return found
 
 
 def launch(
@@ -50,12 +99,14 @@ def launch(
     objective: Optional[str] = None,
     optimization_goal: Optional[str] = None,
     targeting: Optional[dict] = None,
+    interests: Optional[list[dict]] = None,
     client: Optional[FacebookAdsClient] = None,
 ) -> LaunchedCampaign:
     """Разворачивает кампанию в Meta и возвращает её структуру.
 
     activate=True просит статус ACTIVE, но в режиме DRY_RUN предохранитель всё равно
     оставит PAUSED. daily_budget сверяется с жёстким лимитом внутри клиента.
+    interests — список интересов {id, name} для сужения аудитории (опц.).
     """
     settings = get_settings()
     fb = client or FacebookAdsClient(settings)
@@ -63,10 +114,10 @@ def launch(
     if not creatives:
         raise ValueError("Нет ни одного креатива для запуска.")
 
-    obj_default, optgoal_default = _GOAL_MAP.get(brief.goal.upper(), _GOAL_MAP["TRAFFIC"])
-    objective = objective or obj_default
-    optimization_goal = optimization_goal or optgoal_default
-    targeting = targeting or build_targeting(brief)
+    obj_r, optgoal_r, promoted = resolve_campaign_config(brief.goal, settings.meta_pixel_id)
+    objective = objective or obj_r
+    optimization_goal = optimization_goal or optgoal_r
+    targeting = targeting or build_targeting(brief, interests=interests)
     want_status = "ACTIVE" if activate else "PAUSED"
 
     log.info(
@@ -90,6 +141,7 @@ def launch(
         targeting=targeting,
         optimization_goal=optimization_goal,
         status=want_status,
+        promoted_object=promoted,
     )
     adset_id = adset["id"]
 

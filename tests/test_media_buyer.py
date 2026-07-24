@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from agents.media_buyer import build_targeting, launch
+from agents.media_buyer import (
+    build_targeting,
+    launch,
+    resolve_campaign_config,
+    resolve_interests,
+)
 from services.state import Creative, ProductBrief
 
 
@@ -51,6 +56,46 @@ def test_build_targeting_valid():
     t = build_targeting(_brief())
     assert t["geo_locations"]["countries"] == ["KZ"]
     assert t["age_min"] == 18 and t["age_max"] == 65
+    assert "flexible_spec" not in t  # без интересов
+
+
+def test_build_targeting_with_interests():
+    t = build_targeting(_brief(), interests=[{"id": "6003", "name": "Coffee"}])
+    assert t["flexible_spec"] == [{"interests": [{"id": "6003", "name": "Coffee"}]}]
+
+
+def test_resolve_campaign_config_awareness():
+    obj, opt, promoted = resolve_campaign_config("AWARENESS", pixel_id="")
+    assert obj == "OUTCOME_AWARENESS" and opt == "REACH" and promoted is None
+
+
+def test_resolve_campaign_config_leads_with_pixel():
+    obj, opt, promoted = resolve_campaign_config("LEAD_GENERATION", pixel_id="999")
+    assert obj == "OUTCOME_LEADS"
+    assert opt == "OFFSITE_CONVERSIONS"
+    assert promoted == {"pixel_id": "999", "custom_event_type": "LEAD"}
+
+
+def test_resolve_campaign_config_sales_with_pixel():
+    obj, opt, promoted = resolve_campaign_config("SALES", pixel_id="999")
+    assert obj == "OUTCOME_SALES"
+    assert promoted["custom_event_type"] == "PURCHASE"
+
+
+def test_resolve_campaign_config_leads_without_pixel_falls_back_to_clicks():
+    obj, opt, promoted = resolve_campaign_config("LEAD_GENERATION", pixel_id="")
+    assert obj == "OUTCOME_TRAFFIC" and opt == "LINK_CLICKS" and promoted is None
+
+
+def test_resolve_interests_dedup_and_limit():
+    class FakeSearch:
+        def search_interests(self, kw, limit=1):
+            return {"coffee": [{"id": "1", "name": "Coffee"}],
+                    "tea": [{"id": "2", "name": "Tea"}],
+                    "dup": [{"id": "1", "name": "Coffee"}]}.get(kw, [])
+
+    res = resolve_interests(["coffee", "tea", "dup", "unknown"], FakeSearch())
+    assert [r["id"] for r in res] == ["1", "2"]  # без дублей, unknown пропущен
 
 
 def test_launch_builds_full_structure():
@@ -77,3 +122,16 @@ def test_launch_without_images_raises():
 def test_launch_without_creatives_raises():
     with pytest.raises(ValueError):
         launch(_brief(), [], daily_budget=5.0, client=FakeFB())
+
+
+def test_launch_with_pixel_sends_promoted_object(set_env):
+    set_env(META_PIXEL_ID="999")  # goal брифа = LEAD_GENERATION по умолчанию
+    fb = FakeFB()
+    launch(_brief(), [_creative()], daily_budget=5.0, client=fb)
+    assert fb.adset_kw["promoted_object"] == {"pixel_id": "999", "custom_event_type": "LEAD"}
+
+
+def test_launch_without_pixel_no_promoted_object():
+    fb = FakeFB()
+    launch(_brief(), [_creative()], daily_budget=5.0, client=fb)
+    assert fb.adset_kw["promoted_object"] is None

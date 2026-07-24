@@ -28,6 +28,11 @@ class FakeClient(FacebookAdsClient):
             return {"id": "ad_1"}
         if path.endswith("/adimages"):
             return {"images": {"creative.jpg": {"hash": "HASH123"}}}
+        if path == "search":
+            return {"data": [
+                {"id": "6003", "name": "Coffee", "audience_size_lower_bound": 12000},
+                {"id": "6004", "name": "Espresso", "audience_size_lower_bound": 8000},
+            ]}
         return {"id": "obj"}
 
 
@@ -82,6 +87,13 @@ def test_upload_image_returns_hash(monkeypatch):
 
     monkeypatch.setattr("tools.facebook_api.requests.get", lambda *a, **k: FakeResp())
     assert c.upload_image_from_url("http://x/y.jpg") == "HASH123"
+
+
+def test_search_interests_parses_results():
+    c = FakeClient()
+    res = c.search_interests("coffee")
+    assert len(res) == 2
+    assert res[0] == {"id": "6003", "name": "Coffee", "audience": 12000, "topic": None}
 
 
 def test_extract_leads():
