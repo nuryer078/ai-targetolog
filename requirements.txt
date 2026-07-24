@@ -1,0 +1,22 @@
+# --- Ядро ---
+anthropic>=0.40.0            # Claude API + tool calling
+langgraph>=0.2.40           # оркестрация агентов
+pydantic>=2.7               # модели данных / состояние
+pydantic-settings>=2.3      # чтение .env
+
+# --- Интеграции ---
+requests>=2.32              # Meta Graph API и Telegram (прямые HTTP-вызовы)
+replicate>=0.34             # генерация картинок (Flux.1)
+
+# --- Визуальная панель управления ---
+streamlit>=1.36            # human-in-the-loop пульт: просмотр/правка/запуск
+
+# --- Инфраструктура ---
+tenacity>=8.3               # ретраи с backoff для сетевых вызовов
+python-dotenv>=1.0          # подстраховка загрузки .env
+
+# --- Разработка ---
+pytest>=8.2
+pytest-mock>=3.14
+responses>=0.25             # мок HTTP в тестах
+ruff>=0.5                   # линтер
