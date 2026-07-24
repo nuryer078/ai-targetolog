@@ -239,6 +239,54 @@ class FacebookAdsClient:
         log.info("Креатив создан: %s", body.get("id"))
         return body
 
+    # ---------- видео (Reels/лента) ----------
+
+    def upload_video_from_url(self, video_url: str) -> str:
+        """Загружает видео в кабинет по URL. Возвращает video_id."""
+        guardrails.check_kill_switch()
+        body = self._request(
+            "POST",
+            f"{self.s.ad_account_path}/advideos",
+            data={"file_url": video_url, "name": "[AI] video"},
+        )
+        vid = body.get("id")
+        if not vid:
+            raise MetaApiError(f"Meta не вернула video_id: {body}")
+        log.info("Видео загружено: %s", vid)
+        return vid
+
+    def create_ad_creative_video(
+        self,
+        name: str,
+        message: str,
+        headline: str,
+        description: str,
+        link: str,
+        video_id: str,
+        thumbnail_url: str,
+        *,
+        call_to_action: str = "LEARN_MORE",
+    ) -> dict[str, Any]:
+        """Создаёт видео-креатив (видео + обложка + текст + ссылка)."""
+        object_story_spec = {
+            "page_id": self.s.meta_page_id,
+            "video_data": {
+                "video_id": video_id,
+                "message": message,
+                "title": headline,
+                "link_description": description,
+                "image_url": thumbnail_url,
+                "call_to_action": {"type": call_to_action, "value": {"link": link}},
+            },
+        }
+        body = self._request(
+            "POST",
+            f"{self.s.ad_account_path}/adcreatives",
+            data={"name": name, "object_story_spec": _json(object_story_spec)},
+        )
+        log.info("Видео-креатив создан: %s", body.get("id"))
+        return body
+
     # ---------- объявление ----------
 
     def create_ad(

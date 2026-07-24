@@ -40,6 +40,8 @@ class FakeClient(FacebookAdsClient):
             return {"id": "ad_1"}
         if path.endswith("/adimages"):
             return {"images": {"creative.jpg": {"hash": "HASH123"}}}
+        if path.endswith("/advideos"):
+            return {"id": "vid_1"}
         if path == "search":
             return {"data": [
                 {"id": "6003", "name": "Coffee", "audience_size_lower_bound": 12000},
@@ -199,3 +201,23 @@ def test_list_custom_audiences_parses():
     c = FakeClient()
     res = c.list_custom_audiences()
     assert res[0]["id"] == "aud_1" and res[0]["subtype"] == "WEBSITE"
+
+
+# ---------- видео ----------
+
+def test_upload_video_returns_id():
+    c = FakeClient()
+    assert c.upload_video_from_url("http://vid/clip.mp4") == "vid_1"
+    assert c.calls[-1]["data"]["file_url"] == "http://vid/clip.mp4"
+
+
+def test_create_video_creative_builds_video_data():
+    c = FakeClient()
+    c.create_ad_creative_video(
+        name="v", message="m", headline="h", description="d",
+        link="https://x.kz", video_id="vid_1", thumbnail_url="http://img/t.jpg",
+    )
+    import json as _json
+    spec = _json.loads(c.calls[-1]["data"]["object_story_spec"])
+    assert spec["video_data"]["video_id"] == "vid_1"
+    assert spec["video_data"]["image_url"] == "http://img/t.jpg"

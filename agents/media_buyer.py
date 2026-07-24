@@ -123,12 +123,44 @@ def resolve_interests(
     return found
 
 
+def _make_ad(fb, brief, cr, index, adset_id, link, status) -> Optional[str]:
+    """Создаёт объявление под креатив: видео-ad, если есть video_url, иначе картинка.
+
+    Возвращает ad_id или None (если у креатива нет ни картинки, ни обложки для видео).
+    """
+    name_c = f"[AI] creative {index} — {brief.name}"
+    if cr.video_url:
+        if not cr.image_url:
+            log.warning("Видео «%s» без обложки (image_url) — пропускаю.", cr.idea_angle)
+            return None
+        video_id = fb.upload_video_from_url(cr.video_url)
+        creative_obj = fb.create_ad_creative_video(
+            name=name_c, message=cr.primary_text, headline=cr.headline,
+            description=cr.description, link=link, video_id=video_id, thumbnail_url=cr.image_url,
+        )
+    elif cr.image_url:
+        image_hash = fb.upload_image_from_url(cr.image_url)
+        creative_obj = fb.create_ad_creative(
+            name=name_c, message=cr.primary_text, headline=cr.headline,
+            description=cr.description, link=link, image_hash=image_hash,
+        )
+    else:
+        log.warning("Креатив «%s» без картинки/видео — пропускаю.", cr.idea_angle)
+        return None
+    ad = fb.create_ad(
+        name=f"[AI] ad {index} — {cr.idea_angle}",
+        adset_id=adset_id, creative_id=creative_obj["id"], status=status,
+    )
+    return ad["id"]
+
+
 def launch(
     brief: ProductBrief,
     creatives: list[Creative],
     daily_budget: float,
     *,
     activate: bool = False,
+    ab_test: bool = False,
     objective: Optional[str] = None,
     optimization_goal: Optional[str] = None,
     targeting: Optional[dict] = None,
@@ -170,6 +202,13 @@ def launch(
         len(creatives), activate,
     )
 
+    # Годятся креативы с картинкой (она же обложка для видео)
+    usable = [c for c in creatives if c.image_url]
+    if not usable:
+        raise ValueError(
+            "Ни у одного выбранного креатива нет картинки/обложки. Сгенерируй баннеры перед запуском."
+        )
+
     # 1) Кампания (при CBO бюджет живёт здесь)
     campaign = fb.create_campaign(
         name=f"[AI] {brief.name}",
@@ -178,47 +217,43 @@ def launch(
         daily_budget=campaign_budget if cbo else None,
     )
     campaign_id = campaign["id"]
+    adset_budget = None if cbo else daily_budget
 
-    # 2) Группа объявлений (при CBO — без своего бюджета)
-    adset = fb.create_adset(
-        name=f"[AI] {brief.name} — {'/'.join(brief.geo)}",
-        campaign_id=campaign_id,
-        daily_budget=None if cbo else daily_budget,
-        targeting=targeting,
-        optimization_goal=optimization_goal,
-        status=want_status,
-        promoted_object=promoted,
-    )
-    adset_id = adset["id"]
+    def _new_adset(name: str) -> str:
+        return fb.create_adset(
+            name=name, campaign_id=campaign_id, daily_budget=adset_budget,
+            targeting=targeting, optimization_goal=optimization_goal,
+            status=want_status, promoted_object=promoted,
+        )["id"]
 
-    # 3) Объявления
+    adset_ids: list[str] = []
     ad_ids: list[str] = []
-    for i, cr in enumerate(creatives, start=1):
-        if not cr.image_url:
-            log.warning("Креатив «%s» без картинки — пропускаю.", cr.idea_angle)
-            continue
-        image_hash = fb.upload_image_from_url(cr.image_url)
-        creative_obj = fb.create_ad_creative(
-            name=f"[AI] creative {i} — {brief.name}",
-            message=cr.primary_text,
-            headline=cr.headline,
-            description=cr.description,
-            link=link,
-            image_hash=image_hash,
-        )
-        ad = fb.create_ad(
-            name=f"[AI] ad {i} — {cr.idea_angle}",
-            adset_id=adset_id,
-            creative_id=creative_obj["id"],
-            status=want_status,
-        )
-        ad_ids.append(ad["id"])
+
+    if ab_test:
+        # A/B: каждый креатив — своя группа (честное сравнение вариантов)
+        for i, cr in enumerate(usable, start=1):
+            aset = _new_adset(f"[AI] {brief.name} — вариант {i}")
+            adset_ids.append(aset)
+            aid = _make_ad(fb, brief, cr, i, aset, link, want_status)
+            if aid:
+                ad_ids.append(aid)
+        if not cbo:
+            log.info(
+                "A/B: %d групп по %.2f %s/день — суммарно до %.2f %s/день.",
+                len(adset_ids), daily_budget, settings.currency,
+                daily_budget * len(adset_ids), settings.currency,
+            )
+    else:
+        # Один AdSet, внутри — несколько объявлений на тест креативов
+        aset = _new_adset(f"[AI] {brief.name} — {'/'.join(brief.geo)}")
+        adset_ids.append(aset)
+        for i, cr in enumerate(usable, start=1):
+            aid = _make_ad(fb, brief, cr, i, aset, link, want_status)
+            if aid:
+                ad_ids.append(aid)
 
     if not ad_ids:
-        raise ValueError(
-            "Ни одно объявление не создано — у выбранных креативов нет картинок. "
-            "Сгенерируй баннеры перед запуском."
-        )
+        raise ValueError("Ни одно объявление не создано. Проверь картинки/видео креативов.")
 
     final_status = "PAUSED" if settings.dry_run else want_status
     note = (
@@ -227,13 +262,18 @@ def launch(
         if settings.dry_run
         else "🔴 Боевой режим."
     )
+    if ab_test:
+        note = f"A/B-тест: {len(adset_ids)} групп-вариантов. " + note
     result = LaunchedCampaign(
         campaign_id=campaign_id,
-        adset_ids=[adset_id],
+        adset_ids=adset_ids,
         ad_ids=ad_ids,
         status=final_status,
         dry_run=settings.dry_run,
         note=note,
     )
-    log.info("Готово: кампания %s, объявлений %d, статус %s", campaign_id, len(ad_ids), final_status)
+    log.info(
+        "Готово: кампания %s, групп %d, объявлений %d, статус %s",
+        campaign_id, len(adset_ids), len(ad_ids), final_status,
+    )
     return result

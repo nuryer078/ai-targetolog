@@ -49,7 +49,9 @@ class Creative(BaseModel):
     headline: str
     description: str
     image_prompt: str              # промпт для генерации баннера
-    image_url: Optional[str] = None  # заполняется после генерации
+    image_url: Optional[str] = None  # заполняется после генерации (обложка/баннер)
+    video_url: Optional[str] = None  # видео (Reels/лента); image_url служит обложкой
+    video_prompt: Optional[str] = None  # промпт для генерации видео
     selected: bool = True          # отмечен ли креатив к запуску (правится в панели)
 
 

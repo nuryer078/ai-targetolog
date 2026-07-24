@@ -79,3 +79,17 @@ def attach_image(creative: Creative, aspect_ratio: str = "1:1") -> Creative:
     """Генерирует баннер для креатива и проставляет image_url. Возвращает тот же объект."""
     creative.image_url = generate_image(creative.image_prompt, aspect_ratio=aspect_ratio)
     return creative
+
+
+def attach_video(creative: Creative, use_image_as_first_frame: bool = True) -> Creative:
+    """Генерирует видео для креатива (Reels/лента) и проставляет video_url.
+
+    Если есть баннер — «оживляем» его (image-to-video) для визуальной связности.
+    Обложкой видео-объявления служит image_url, поэтому баннер желателен.
+    """
+    from tools.video_gen import generate_video
+
+    prompt = creative.video_prompt or creative.image_prompt
+    first_frame = creative.image_url if use_image_as_first_frame else None
+    creative.video_url = generate_video(prompt, image_url=first_frame)
+    return creative

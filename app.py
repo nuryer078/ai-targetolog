@@ -344,6 +344,18 @@ def step_creatives():
                         st.rerun()
                     except Exception as exc:  # noqa: BLE001
                         st.error(f"Не вышло: {exc}")
+            if cr.video_url:
+                st.video(cr.video_url)
+            if st.button("🎬 Видео (Reels)", key=f"cr_vid_{i}", disabled=not cr.image_url,
+                         help="Оживляет баннер в видео. Сначала сгенерируй баннер."):
+                with st.spinner("Генерирую видео — это дольше..."):
+                    try:
+                        from agents.creative import attach_video
+
+                        attach_video(cr)
+                        st.rerun()
+                    except Exception as exc:  # noqa: BLE001
+                        st.error(f"Не вышло: {exc}")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -458,6 +470,11 @@ def step_launch():
                 ss().interests = []
                 st.rerun()
 
+    ab_test = st.checkbox(
+        "🧪 A/B-тест: каждый креатив — отдельная группа",
+        value=False, help="Честное сравнение вариантов. Без CBO бюджет умножается на число вариантов.",
+    )
+
     c1, c2, c3 = st.columns(3)
     cbo = c1.checkbox("CBO (бюджет кампании)", value=False, help="Advantage+: Meta сама распределяет бюджет.")
     budget = c2.number_input(
@@ -465,6 +482,10 @@ def step_launch():
         value=min(5.0, float(s.max_daily_budget)), step=1.0,
     )
     activate = c3.checkbox("Просить ACTIVE", value=False, help="В DRY_RUN всё равно PAUSED.")
+
+    if ab_test and not cbo:
+        st.caption(f"⚠️ A/B без CBO: бюджет на группу × {len(ready)} вариантов = "
+                   f"до **{budget * max(len(ready), 1):.0f} {s.currency}/день** суммарно.")
 
     try:
         from services.guardrails import preflight
@@ -486,6 +507,7 @@ def step_launch():
 
                 camp = launch(
                     ss().brief, ready, daily_budget=budget, activate=activate,
+                    ab_test=ab_test,
                     interests=ss().interests,
                     custom_audiences=ss().target_auds or None,
                     excluded_audiences=ss().exclude_auds or None,
