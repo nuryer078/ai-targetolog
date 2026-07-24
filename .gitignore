@@ -19,6 +19,13 @@ logs/
 runs/
 *.local
 
+# Локальная БД истории (SQLite)
+*.db
+*.sqlite3
+
+# Секреты Streamlit Cloud (локально)
+.streamlit/secrets.toml
+
 # ОС / IDE
 .DS_Store
 .vscode/

@@ -1,0 +1,29 @@
+# Render.com — деплой в один клик из репозитория (Blueprint).
+services:
+  - type: web
+    name: ai-targetolog
+    runtime: docker
+    plan: starter          # смени при необходимости
+    healthCheckPath: /
+    envVars:
+      # Значения задаются в дашборде Render (Secret) — сюда НЕ вписывать.
+      - key: DRY_RUN
+        value: "true"      # на бою держим безопасный режим по умолчанию
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_AD_ACCOUNT_ID
+        sync: false
+      - key: META_PAGE_ID
+        sync: false
+      - key: META_PIXEL_ID
+        sync: false
+      - key: REPLICATE_API_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: APP_PASSWORD
+        sync: false        # пароль на вход в панель

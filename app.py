@@ -8,12 +8,31 @@
 """
 from __future__ import annotations
 
+import os
+
 import streamlit as st
 
 from config.settings import get_settings
 from services.state import AdIdea, Creative, ProductBrief
 
 st.set_page_config(page_title="AI-таргетолог", page_icon="🎯", layout="wide")
+
+
+def _load_hosting_secrets() -> None:
+    """Переносит секреты Streamlit Cloud (st.secrets) в переменные окружения.
+
+    На Railway/Render/Docker переменные задаются напрямую — там этот шим ничего не делает.
+    Вызывается ДО первого get_settings(), чтобы конфиг увидел ключи.
+    """
+    try:
+        for key, val in st.secrets.items():
+            if isinstance(val, (str, int, float, bool)) and key not in os.environ:
+                os.environ[key] = str(val)
+    except Exception:  # noqa: BLE001 — нет secrets.toml локально: это норм
+        pass
+
+
+_load_hosting_secrets()
 
 st.markdown(
     """
@@ -530,8 +549,32 @@ def step_optimizer():
 
 
 # ============================================================
+#  Защита деплоя: пароль (активен только если задан APP_PASSWORD)
+# ============================================================
+def _password_gate() -> bool:
+    pw = os.environ.get("APP_PASSWORD", "")
+    if not pw:
+        return True  # пароль не задан — гейт выключен (локальная разработка)
+    if ss().get("_authed"):
+        return True
+    st.title("🔒 Вход в AI-таргетолог")
+    st.caption("Панель управляет реальным рекламным бюджетом — доступ по паролю.")
+    entered = st.text_input("Пароль", type="password")
+    if st.button("Войти", type="primary"):
+        if entered == pw:
+            ss()._authed = True
+            st.rerun()
+        else:
+            st.error("Неверный пароль.")
+    return False
+
+
+# ============================================================
 #  Компоновка
 # ============================================================
+if not _password_gate():
+    st.stop()
+
 render_sidebar()
 st.title("Пульт AI-таргетолога")
 st.caption("Полный цикл под контролем человека: смотришь, правишь, одобряешь, запускаешь.")
