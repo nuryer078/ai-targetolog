@@ -579,6 +579,31 @@ def step_optimizer():
             })
         st.dataframe(rows, use_container_width=True)
 
+    # A/B: победитель и статзначимость
+    if ss().metrics and len(ss().metrics) >= 2:
+        st.divider()
+        st.markdown("**🏆 A/B: победитель и статзначимость**")
+        from agents.experiments import auto_select_winner, evaluate_ab
+
+        res = evaluate_ab(ss().metrics)
+        st.caption(f"Метрика: `{res['metric']}` · {res['reason']}")
+        st.dataframe(
+            [{
+                "Ad ID": v["ad_id"], "Успехи": v["successes"], "Испытания": v["trials"],
+                "Конверсия": f"{v['rate'] * 100:.2f}%",
+            } for v in res["variants"]],
+            use_container_width=True,
+        )
+        exec_ab = st.checkbox("Ставить проигравших на паузу", key="ab_exec")
+        if st.button("🏆 Определить победителя A/B"):
+            r2, decs = auto_select_winner(ss().metrics, execute=exec_ab)
+            paused = sum(1 for d in decs if d.action == "PAUSE")
+            if r2["significant"]:
+                verb = "поставлено на паузу" if exec_ab else "к паузе (галочка выключена)"
+                st.success(f"🏆 Победитель: **{r2['winner']}** (p={r2['p_value']:.3f}). Проигравших {verb}: {paused}.")
+            else:
+                st.info(r2["reason"])
+
     st.divider()
     st.markdown("**⬆️ Масштабирование победителей** (уровень групп)")
     default_sets = ",".join(ss().campaign.adset_ids) if ss().campaign else ""

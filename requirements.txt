@@ -14,6 +14,7 @@ streamlit>=1.36            # human-in-the-loop пульт: просмотр/пр
 # --- Инфраструктура ---
 tenacity>=8.3               # ретраи с backoff для сетевых вызовов
 python-dotenv>=1.0          # подстраховка загрузки .env
+psycopg[binary]>=3.2        # Postgres (Neon) для постоянной истории (опц.)
 
 # --- Разработка ---
 pytest>=8.2

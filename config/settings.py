@@ -30,8 +30,10 @@ class Settings(BaseSettings):
     image_model: str = Field(default="black-forest-labs/flux-1.1-pro", alias="IMAGE_MODEL")
     video_model: str = Field(default="minimax/video-01", alias="VIDEO_MODEL")
 
-    # --- История (SQLite) ---
+    # --- История ---
     db_path: str = Field(default="targetolog.db", alias="DB_PATH")
+    # Если задан Postgres-URL (Neon) — история пишется туда (постоянно), иначе SQLite.
+    database_url: str = Field(default="", alias="DATABASE_URL")
 
     # --- Telegram ---
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
