@@ -24,11 +24,27 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+const post = (path: string, body: any) =>
+  req<any>(path, { method: "POST", body: JSON.stringify(body) });
+
 export const api = {
   health: () => req<Health>("/health"),
   history: () => req<any[]>("/history"),
-  autofillBrief: (url: string, note: string) =>
-    req<any>("/brief/autofill", { method: "POST", body: JSON.stringify({ url, note }) }),
-  research: (brief: any) =>
-    req<any>("/research", { method: "POST", body: JSON.stringify({ brief }) }),
+
+  autofillBrief: (url: string, note: string) => post("/brief/autofill", { url, note }),
+  research: (brief: any) => post("/research", { brief }),
+  creatives: (brief: any, ideas: any[], framework: string) =>
+    post("/creatives", { brief, ideas, framework }),
+  creativeImage: (creative: any, aspect_ratio = "1:1") =>
+    post("/creatives/image", { creative, aspect_ratio }),
+  interests: (q: string) => req<any[]>(`/audiences/interests?q=${encodeURIComponent(q)}`),
+  launch: (payload: {
+    brief: any;
+    creatives: any[];
+    daily_budget: number;
+    ab_test?: boolean;
+    campaign_budget?: number | null;
+    interests?: any[] | null;
+  }) => post("/launch", payload),
+  optimize: (ad_ids: string[], execute = false) => post("/optimize", { ad_ids, execute }),
 };

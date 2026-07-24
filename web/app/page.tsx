@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, type Health } from "@/lib/api";
 import { KpiCard } from "@/components/KpiCard";
+import { useStore } from "@/lib/store";
 
 const STEPS = ["Бриф", "Аналитик", "Креативы", "Запуск", "Оптимизация"];
 
@@ -17,10 +18,18 @@ const CONN_LABELS: Record<string, string> = {
 export default function Dashboard() {
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { metrics } = useStore();
 
   useEffect(() => {
     api.health().then(setHealth).catch((e) => setError(String(e.message ?? e)));
   }, []);
+
+  const spend = metrics.reduce((a, m) => a + (m.spend ?? 0), 0);
+  const leads = metrics.reduce((a, m) => a + (m.leads ?? 0), 0);
+  const revenue = metrics.reduce((a, m) => a + (m.revenue ?? 0), 0);
+  const ctr = metrics.length ? metrics.reduce((a, m) => a + (m.ctr ?? 0), 0) / metrics.length : 0;
+  const cpl = leads ? spend / leads : null;
+  const roas = spend ? revenue / spend : null;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -65,11 +74,11 @@ export default function Dashboard() {
 
       {/* KPI */}
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-5">
-        <KpiCard label={`Расход (${health?.currency ?? "USD"})`} value="0.00" />
-        <KpiCard label="Лиды" value="0" />
-        <KpiCard label={`CPL (${health?.currency ?? "USD"})`} value="—" />
-        <KpiCard label="CTR ср." value="0.00%" />
-        <KpiCard label="ROAS" value="—" />
+        <KpiCard label={`Расход (${health?.currency ?? "USD"})`} value={spend.toFixed(2)} />
+        <KpiCard label="Лиды" value={String(leads)} />
+        <KpiCard label={`CPL (${health?.currency ?? "USD"})`} value={cpl ? cpl.toFixed(2) : "—"} />
+        <KpiCard label="CTR ср." value={`${ctr.toFixed(2)}%`} />
+        <KpiCard label="ROAS" value={roas ? roas.toFixed(2) : "—"} />
       </div>
 
       {/* Подключения + предохранители */}
