@@ -11,6 +11,10 @@ replicate>=0.34             # генерация картинок (Flux.1)
 # --- Визуальная панель управления ---
 streamlit>=1.36            # human-in-the-loop пульт: просмотр/правка/запуск
 
+# --- API для Next.js-витрины ---
+fastapi>=0.110            # REST API поверх агентов
+uvicorn[standard]>=0.29   # ASGI-сервер для FastAPI
+
 # --- Инфраструктура ---
 tenacity>=8.3               # ретраи с backoff для сетевых вызовов
 python-dotenv>=1.0          # подстраховка загрузки .env
