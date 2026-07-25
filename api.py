@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -18,8 +18,13 @@ from config.settings import get_settings
 from services.state import AdIdea, Creative, ProductBrief
 
 
-def require_token(x_api_token: str | None = Header(default=None)) -> None:
-    """Если задан API_TOKEN — требуем заголовок X-API-Token. Иначе доступ открыт (dev)."""
+def require_token(request: Request, x_api_token: str | None = Header(default=None)) -> None:
+    """Если задан API_TOKEN — требуем заголовок X-API-Token. Иначе доступ открыт (dev).
+
+    /health всегда открыт: это нужно для health-check хостинга и статуса подключений на фронте.
+    """
+    if request.url.path == "/health":
+        return
     token = get_settings().api_token
     if token and x_api_token != token:
         raise HTTPException(status_code=401, detail="Неверный или отсутствующий API-токен.")

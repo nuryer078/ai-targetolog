@@ -1,29 +1,29 @@
-# Render.com — деплой в один клик из репозитория (Blueprint).
+# Render Blueprint — деплой FastAPI-бэкенда витрины в один заход.
+# Render читает ЭТОТ файл и собирает ровно Dockerfile.api (без угадывания папок).
+# Как деплоить: render.com -> New -> Blueprint -> выбрать репозиторий -> Apply.
 services:
   - type: web
-    name: ai-targetolog
+    name: ai-targetolog-api
     runtime: docker
-    plan: starter          # смени при необходимости
-    healthCheckPath: /
+    dockerfilePath: ./Dockerfile.api
+    plan: free                 # бесплатно (спит при простое, будится ~50с)
+    healthCheckPath: /health   # /health всегда открыт (без токена)
     envVars:
-      # Значения задаются в дашборде Render (Secret) — сюда НЕ вписывать.
+      # Значения-плейсхолдеры — безопасные. Секреты (sync:false) вводишь в дашборде Render.
       - key: DRY_RUN
-        value: "true"      # на бою держим безопасный режим по умолчанию
+        value: "true"          # бюджет не тратится
+      - key: MAX_DAILY_BUDGET
+        value: "10"
+      - key: TARGET_CPL
+        value: "5"
+      - key: CURRENCY
+        value: "USD"
       - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: META_ACCESS_TOKEN
-        sync: false
-      - key: META_AD_ACCOUNT_ID
-        sync: false
-      - key: META_PAGE_ID
-        sync: false
-      - key: META_PIXEL_ID
         sync: false
       - key: REPLICATE_API_TOKEN
         sync: false
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CHAT_ID
-        sync: false
-      - key: APP_PASSWORD
-        sync: false        # пароль на вход в панель
+      - key: API_TOKEN
+        sync: false            # тот же, что NEXT_PUBLIC_API_TOKEN на Vercel (можно не задавать)
+      # Meta/Telegram/Pixel/DATABASE_URL — добавишь позже при необходимости:
+      # - key: META_ACCESS_TOKEN
+      #   sync: false
